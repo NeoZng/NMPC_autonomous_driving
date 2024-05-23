@@ -1,11 +1,11 @@
 % Parameters
 radius = 20;      % Radius from origin to the middle of the road (m)
 road_width = 8;   % Width of the road (m)
-num_obstacles = 7; % Number of obstacles
+num_obstacles = 10; % Number of obstacles
 obstacle_radius = 1; % Radius of each obstacle (m)
 
 % Ring road boundaries
-theta = linspace(0, 2*pi, 400);
+theta = linspace(0, 2*pi, 300);
 outer_boundary_x = (radius + road_width/2) * cos(theta);
 outer_boundary_y = (radius + road_width/2) * sin(theta);
 inner_boundary_x = (radius - road_width/2) * cos(theta);
@@ -17,12 +17,16 @@ center_line_y = radius * sin(theta);
 obstacle_positions = [];
 for i = 1:num_obstacles
     % equally distributed obstacles along the angle
-    angle = 2 * pi * i / num_obstacles + pi/2;
+    angle = 2 * pi * i / num_obstacles + pi/6;
+    if angle<pi/9 || angle>17*pi/9
+        continue; % avoid violating initia constraints
+    end
     dist_from_center = radius - road_width/4 + road_width/2 * rand();
     obstacle_x = dist_from_center * cos(angle);
     obstacle_y = dist_from_center * sin(angle);
     obstacle_positions = [obstacle_positions; obstacle_x, obstacle_y];
 end
+num_obstacles = length(obstacle_positions);
 
 % Save the boundaries and obstacles
 save('ring_road.mat', 'outer_boundary_x', 'outer_boundary_y', ...

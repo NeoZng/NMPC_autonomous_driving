@@ -6,6 +6,7 @@ import casadi.*
 %% Generate road lane and obstacles
 N = 20;
 N_c = 1;
+delta = 0.3;
 [Ref,End,obs,r]=loadMap(N);
 %% CasADi objec  t,construct NLP problem
 % State and input dimensions
@@ -19,7 +20,7 @@ ref = opt.parameter(2, N+1);
 cost = 0;
 %      px, py, phi, vx, vy, w
 Q = diag([1, 1]);   % State tracking cost
-Q_t = diag([1, 1, 0, 0, 0, 0]); % Terminal state cost
+Q_t = diag([2, 2]); % Terminal state cost
 %          a , delta
 R = diag([0.1, 0.5]);         % Control effort cost
 R_rate = diag([0.1, 0.1]);  % Control rate cost
@@ -35,24 +36,28 @@ opt.subject_to( x(:,1) == xt ); % initial state constraint
 for k=1:N
   % dynamics
   opt.subject_to( x(:,k+1) == car.car_dynamics(x(:,k),u(:,k)) );
+
   % obstacle avoidance
   for j = 1:length(obs)
-    opt.subject_to(norm(x(1:2,k) - obs(:,j), 2) >= (car.width + r));
+    opt.subject_to(norm(x(1:2,k) - obs(:,j), 2) >= (car.width + r + delta));
   end
+
   % input constraints
-  opt.subject_to( u(2,k) <= d_max );
-  opt.subject_to( u(2,k) >= d_min );
   opt.subject_to( u(1,k) <= a_max );
   opt.subject_to( u(1,k) >= a_min );
+  opt.subject_to( u(2,k) <= d_max );
+  opt.subject_to( u(2,k) >= d_min );
+
   % tracking cost & control effort
   cost = cost + (x(1:2,k)-ref(:,k)).'*Q*(x(1:2,k)-ref(:,k))+u(:,k).'*R*u(:,k); 
+
   % penalize rate
   if k > 1
     cost = cost + (u(:,k)-u(:,k-1)).'*R_rate*(u(:,k)-u(:,k-1));
   end
 end
  % terminal cost
-cost = cost + (x(1:2,N+1)-ref(:,N+1)).'*(x(1:2,N+1)-ref(:,N+1));
+cost = cost + (x(1:2,N+1)-ref(:,N+1)).'*Q_t*(x(1:2,N+1)-ref(:,N+1));
 opt.minimize(cost);
 
 % suppress output
@@ -80,11 +85,15 @@ for k = 1:End-1
   XPred{k} = sol.value( x );
   UPred{k} = sol.value( u );
   % apply first control
-  U(:,k) = UPred{k}(:,1);
-  X(:,k+1) = car.car_dynamics( X(:,k), U(:,k) );
+  U(:,k) = UPred{k}(:,1) ;% + 0.01 * [0.5*(a_max-a_min); 0.2*(d_max-d_min)] .* (2*rand(2,1)-1);
+    % clamp input to the constraints
+  U(1,k) = max(min(U(1,k),a_max),a_min);
+  U(2,k) = max(min(U(2,k),d_max),d_min);
+    % simulate system, perturb the output with noise
+  X(:,k+1) = car.car_dynamics( X(:,k), U(:,k) );% +[0.01;0.01;pi/180;0.02;0.02;pi/360].*randn(nx,1);
   
-  opt.set_initial( x, [XPred{k}(:,2:end), car.car_dynamics(XPred{k}(:,end),[0;0])] )
-  opt.set_initial( u, [UPred{k}(:,2:end), [0;0] ] )
+  opt.set_initial(x, [X(:,k+1),XPred{k}(:,2:end-1), car.car_dynamics(XPred{k}(:,end),[0;0])])
+  opt.set_initial(u, [UPred{k}(:,2:end), [0;0] ])
 
   % update visualisation
   figure(1)
@@ -93,18 +102,14 @@ for k = 1:End-1
   car.vis_car(X(:,k))
   hold on
   delete(pred(k))
+   % save img
+  frame = getframe(gcf);
+  im = frame2im(frame);
+  [imind,cm] = rgb2ind(im,256);
+  if k == 1
+      imwrite(imind,cm,'test.gif','gif', 'Loopcount',inf);
+  else
+      imwrite(imind,cm,'test.gif','gif','WriteMode','append');
+  end
   pause(0.01)
 end
-
-%% save each frame as an image then create a video
-% for i = 1:End
-%     frame = getframe(gcf);
-%     im = frame2im(frame);
-%     [imind,cm] = rgb2ind(im,256);
-%     if i == 1
-%         imwrite(imind,cm,'test.gif','gif', 'Loopcount',inf);
-%     else
-%         imwrite(imind,cm,'test.gif','gif','WriteMode','append');
-%     end
-% end
-
